@@ -1,0 +1,82 @@
+import os
+import chromadb
+from chromadb.utils import embedding_functions
+from sentence_transformers import SentenceTransformer
+
+def initialize_vector_db(db_path: str = "./chroma_db", collection_name: str = "contract_repository"):
+    """
+    Initializes a persistent ChromaDB client and creates or gets a collection.
+    """
+    client = chromadb.PersistentClient(path=db_path)
+    
+    # Use HuggingFace sentence-transformers model for embedding generation
+    embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+        model_name="all-MiniLM-L6-v2"
+    )
+    
+    collection = client.get_or_create_collection(
+        name=collection_name,
+        embedding_function=embedding_fn,
+        metadata={"hnsw:space": "cosine"}
+    )
+    return collection
+
+def populate_vector_db(collection, documents: list[dict]):
+    """
+    Populates ChromaDB with document chunks and associated metadata.
+    """
+    ids = [doc["id"] for doc in documents]
+    texts = [doc["content"] for doc in documents]
+    metadatas = [doc["metadata"] for doc in documents]
+
+    collection.add(
+        ids=ids,
+        documents=texts,
+        metadatas=metadatas
+    )
+    print(f"Successfully indexed {len(documents)} document sections into Vector Database.")
+
+def semantic_search(collection, query: str, n_results: int = 3):
+    """
+    Performs vector similarity search given a query string.
+    """
+    results = collection.query(
+        query_texts=[query],
+        n_results=n_results
+    )
+    return results
+
+if __name__ == "__main__":
+    # Sample legal contract segments
+    sample_contracts = [
+        {
+            "id": "doc_001_sec_1",
+            "content": "The party shall not disclose any confidential information to third parties without prior consent.",
+            "metadata": {"doc_id": "contract_001.pdf", "category": "NDAs", "clause": "Confidentiality"}
+        },
+        {
+            "id": "doc_002_sec_1",
+            "content": "Either party may terminate this agreement by providing 30 days written notice.",
+            "metadata": {"doc_id": "contract_002.pdf", "category": "Service Agreement", "clause": "Termination"}
+        },
+        {
+            "id": "doc_003_sec_1",
+            "content": "The contractor shall indemnify and hold harmless the client from liability or claims.",
+            "metadata": {"doc_id": "contract_003.pdf", "category": "Liability", "clause": "Indemnification"}
+        }
+    ]
+
+    # 1. Initialize DB
+    collection = initialize_vector_db()
+
+    # 2. Populate DB
+    populate_vector_db(collection, sample_contracts)
+
+    # 3. Test Vector Search
+    query = "What are the rules regarding keeping secrets?"
+    search_results = semantic_search(collection, query, n_results=1)
+    
+    print("\n--- Search Query Results ---")
+    print(f"Query: {query}")
+    print(f"Matched Clause: {search_results['documents'][0][0]}")
+    print(f"Metadata: {search_results['metadatas'][0][0]}")
